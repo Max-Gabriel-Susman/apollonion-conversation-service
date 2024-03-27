@@ -21,7 +21,7 @@ var (
 )
 
 func main() {
-	server, err := net.Listen("tcp", ":8080")
+	server, err := net.Listen("tcp", ":8081")
 	if err != nil {
 		panic(err)
 	}
@@ -29,7 +29,7 @@ func main() {
 
 	go handleConnections()
 
-	fmt.Println("Server listening on port 8080")
+	fmt.Println("Server listening on port 8081")
 	for {
 		conn, err := server.Accept()
 		if err != nil {
