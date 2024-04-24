@@ -4,92 +4,67 @@ import (
 	"bufio"
 	"fmt"
 	"net"
-	"sync"
+	"os"
 )
 
-type Client struct {
-	channel chan string
-	name    string
-}
-
-var (
-	clients    = make(map[Client]bool)
-	broadcast  = make(chan string)
-	register   = make(chan Client)
-	unregister = make(chan Client)
-	mutex      = &sync.Mutex{}
-)
-
-func main() {
-	server, err := net.Listen("tcp", ":8081")
-	if err != nil {
-		panic(err)
-	}
-	defer server.Close()
-
-	go handleConnections()
-
-	fmt.Println("Server listening on port 8081")
-	for {
-		conn, err := server.Accept()
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
-
-		go handleClient(conn)
-	}
-}
-
-func handleConnections() {
-	for {
-		select {
-		case message := <-broadcast:
-			mutex.Lock()
-			for client := range clients {
-				select {
-				case client.channel <- message:
-				default:
-					close(client.channel)
-					delete(clients, client)
-				}
-			}
-			mutex.Unlock()
-		case client := <-register:
-			mutex.Lock()
-			clients[client] = true
-			mutex.Unlock()
-		case client := <-unregister:
-			mutex.Lock()
-			if _, ok := clients[client]; ok {
-				delete(clients, client)
-				close(client.channel)
-			}
-			mutex.Unlock()
-		}
-	}
-}
-
-func handleClient(conn net.Conn) {
+func handleConnection(conn net.Conn) {
 	defer conn.Close()
-
-	channel := make(chan string)
-	client := Client{channel: channel, name: conn.RemoteAddr().String()}
-
-	register <- client
-
-	go func() {
-		for message := range channel {
-			fmt.Fprintln(conn, message)
-		}
-	}()
-
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
-		message := scanner.Text()
-		broadcast <- fmt.Sprintf("%s: %s", client.name, message)
+		text := scanner.Text()
+		fmt.Fprintf(conn, "Received: %s\n", text)
 	}
-
-	unregister <- client
-	fmt.Printf("Client %s disconnected\n", client.name)
+	if err := scanner.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "error reading from connection: %s\n", err)
+	}
 }
+
+func startServer(address string) error {
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		return err
+	}
+	defer listener.Close()
+	fmt.Println("Server is listening on", address)
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error accepting connection: %s\n", err)
+			continue
+		}
+		go handleConnection(conn)
+	}
+}
+
+func main() {
+	if err := startServer(":8080"); err != nil {
+		fmt.Fprintf(os.Stderr, "error starting server: %s\n", err)
+		os.Exit(1)
+	}
+}
+
+/*
+
+	set the stage for channels:
+		store identifiers and broadcast messages to all clients
+
+		the client that sends the message should not receive it back
+
+		test coverage
+
+		should open up the door for using channels and then we can
+
+		bring back in a good implementation of fanout orchestration
+
+	controlling concurrency:
+		cap goroutines, but still accept more clients to connect
+
+		maybe store a slice of net.Conn to sorta cache them so we can get
+
+		around to them later while staying under the goroutine cap
+
+		test coverage
+
+	failure case coverage for existing and new logic:
+*/

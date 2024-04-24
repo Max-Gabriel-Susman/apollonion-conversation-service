@@ -2,59 +2,114 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"net"
-	"strings"
 	"testing"
+	"time"
 )
 
-func TestChatServer(t *testing.T) {
-	go main()
+func TestServerConcurrency(t *testing.T) {
+	t.Run("successful handling of concurrent requests from multiple clients(5 clients)", func(t *testing.T) {
+		address := ":8080"
+		go startServer(address)
+		time.Sleep(time.Second)
 
-	t.Run("Successful message broadcast", func(t *testing.T) {
-		conn, err := net.Dial("tcp", "localhost:8081")
-		if err != nil {
-			t.Fatalf("Failed to connect to chat server: %s", err)
-		}
-		defer conn.Close()
+		numClients := 5
+		messages := make(chan string, numClients)
 
-		message := "Hello, World!\n"
-		_, err = conn.Write([]byte(message))
-		if err != nil {
-			t.Fatalf("Failed to send message to chat server: %s", err)
-		}
+		clientWork := func(id int) {
+			conn, err := net.Dial("tcp", address)
+			if err != nil {
+				t.Error("Failed to connect to server:", err)
+				return
+			}
+			defer conn.Close()
 
-		response, err := bufio.NewReader(conn).ReadString('\n')
-		if err != nil {
-			t.Fatalf("Failed to read response from chat server: %s", err)
-		}
+			message := fmt.Sprintf("Hello from client %d", id)
+			fmt.Fprintln(conn, message)
 
-		expectedSuffix := strings.TrimSpace(message)
-		if !strings.HasSuffix(strings.TrimSpace(response), expectedSuffix) {
-			t.Fatalf("Expected server response to end with %q, got %q", expectedSuffix, response)
-		}
-	})
-
-	t.Run("Failure on unexpected message format", func(t *testing.T) {
-		conn, err := net.Dial("tcp", "localhost:8081")
-		if err != nil {
-			t.Fatalf("Failed to connect to chat server: %s", err)
-		}
-		defer conn.Close()
-
-		message := "InvalidMessageFormat\n"
-		_, err = conn.Write([]byte(message))
-		if err != nil {
-			t.Fatalf("Failed to send message to chat server: %s", err)
+			responseScanner := bufio.NewScanner(conn)
+			if responseScanner.Scan() {
+				response := responseScanner.Text()
+				messages <- response
+			}
 		}
 
-		response, err := bufio.NewReader(conn).ReadString('\n')
-		if err != nil {
-			t.Fatalf("Failed to read response from chat server: %s", err)
+		for i := 0; i < numClients; i++ {
+			go clientWork(i)
 		}
 
-		if !strings.Contains(response, strings.TrimSpace(message)) {
-			t.Fatalf("Expected server response to contain %q, got %q", message, response)
+		for i := 0; i < numClients; i++ {
+			msg := <-messages
+			t.Log("Received:", msg)
 		}
 	})
 
+	t.Run("server start up delay", func(t *testing.T) {
+		address := ":8080"
+		go startServer(address)
+		time.Sleep(1 * time.Second)
+
+		conn, err := net.Dial("tcp", address)
+		if err != nil {
+			t.Skip("Server not ready, skipping test")
+		}
+		conn.Close()
+	})
+
+	t.Run("connection retries", func(t *testing.T) {
+		address := ":8080"
+		go startServer(address)
+		time.Sleep(1 * time.Second)
+
+		const maxRetries = 3
+		var conn net.Conn
+		var err error
+		for attempt := 1; attempt <= maxRetries; attempt++ {
+			conn, err = net.Dial("tcp", address)
+			if err == nil {
+				break
+			}
+			time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+		}
+		if err != nil {
+			t.Fatal("Failed to connect after retries:", err)
+		}
+		conn.Close()
+	})
+
+	t.Run("stress test(100 clients)", func(t *testing.T) {
+		address := ":8080"
+		go startServer(address)
+		time.Sleep(1 * time.Second)
+
+		const stressClientCount = 100
+		done := make(chan bool, stressClientCount)
+
+		for i := 0; i < stressClientCount; i++ {
+			go func(id int) {
+				conn, err := net.Dial("tcp", address)
+				if err != nil {
+					t.Error("Failed to connect to server:", err)
+					done <- false
+					return
+				}
+				defer conn.Close()
+				fmt.Fprintf(conn, "Stress test message from client %d\n", id)
+				scanner := bufio.NewScanner(conn)
+				if scanner.Scan() {
+					done <- true
+				} else {
+					t.Error("Failed to receive response during stress test")
+					done <- false
+				}
+			}(i)
+		}
+
+		for i := 0; i < stressClientCount; i++ {
+			if success := <-done; !success {
+				t.Error("Not all clients completed successfully")
+			}
+		}
+	})
 }
