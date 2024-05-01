@@ -5,14 +5,47 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sync"
 )
 
+var (
+	connMutex     sync.Mutex
+	connections   []net.Conn
+	broadcastChan = make(chan string)
+)
+
+func broadcaster() {
+	for {
+		msg := <-broadcastChan
+		connMutex.Lock()
+		for _, conn := range connections {
+			fmt.Fprintf(conn, "Broadcast: %s\n", msg)
+		}
+		connMutex.Unlock()
+	}
+}
+
 func handleConnection(conn net.Conn) {
-	defer conn.Close()
+	defer func() {
+		conn.Close()
+		connMutex.Lock()
+		for i, c := range connections {
+			if c == conn {
+				connections = append(connections[:i], connections[i+1:]...)
+				break
+			}
+		}
+		connMutex.Unlock()
+	}()
+
+	connMutex.Lock()
+	connections = append(connections, conn)
+	connMutex.Unlock()
+
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
 		text := scanner.Text()
-		fmt.Fprintf(conn, "Received: %s\n", text)
+		broadcastChan <- text
 	}
 	if err := scanner.Err(); err != nil {
 		fmt.Fprintf(os.Stderr, "error reading from connection: %s\n", err)
@@ -26,6 +59,8 @@ func startServer(address string) error {
 	}
 	defer listener.Close()
 	fmt.Println("Server is listening on", address)
+
+	go broadcaster()
 
 	for {
 		conn, err := listener.Accept()
@@ -43,28 +78,3 @@ func main() {
 		os.Exit(1)
 	}
 }
-
-/*
-
-	set the stage for channels:
-		store identifiers and broadcast messages to all clients
-
-		the client that sends the message should not receive it back
-
-		test coverage
-
-		should open up the door for using channels and then we can
-
-		bring back in a good implementation of fanout orchestration
-
-	controlling concurrency:
-		cap goroutines, but still accept more clients to connect
-
-		maybe store a slice of net.Conn to sorta cache them so we can get
-
-		around to them later while staying under the goroutine cap
-
-		test coverage
-
-	failure case coverage for existing and new logic:
-*/

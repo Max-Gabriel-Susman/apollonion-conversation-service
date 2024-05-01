@@ -4,18 +4,19 @@ import (
 	"bufio"
 	"fmt"
 	"net"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestServerConcurrency(t *testing.T) {
 	t.Run("successful handling of concurrent requests from multiple clients(5 clients)", func(t *testing.T) {
-		address := ":8080"
+		address := "localhost:8080"
 		go startServer(address)
 		time.Sleep(time.Second)
 
 		numClients := 5
-		messages := make(chan string, numClients)
+		messages := make(chan string, numClients*numClients)
 
 		clientWork := func(id int) {
 			conn, err := net.Dial("tcp", address)
@@ -29,9 +30,11 @@ func TestServerConcurrency(t *testing.T) {
 			fmt.Fprintln(conn, message)
 
 			responseScanner := bufio.NewScanner(conn)
-			if responseScanner.Scan() {
+			for responseScanner.Scan() {
 				response := responseScanner.Text()
-				messages <- response
+				if strings.Contains(response, "Broadcast:") {
+					messages <- response
+				}
 			}
 		}
 
@@ -39,14 +42,15 @@ func TestServerConcurrency(t *testing.T) {
 			go clientWork(i)
 		}
 
-		for i := 0; i < numClients; i++ {
-			msg := <-messages
-			t.Log("Received:", msg)
+		expectedMessages := numClients * (numClients - 1)
+		for i := 0; i < expectedMessages; i++ {
+			<-messages
 		}
+		t.Logf("Received all expected broadcast messages")
 	})
 
 	t.Run("server start up delay", func(t *testing.T) {
-		address := ":8080"
+		address := "localhost:8081"
 		go startServer(address)
 		time.Sleep(1 * time.Second)
 
@@ -58,7 +62,7 @@ func TestServerConcurrency(t *testing.T) {
 	})
 
 	t.Run("connection retries", func(t *testing.T) {
-		address := ":8080"
+		address := "localhost:8082"
 		go startServer(address)
 		time.Sleep(1 * time.Second)
 
@@ -79,7 +83,7 @@ func TestServerConcurrency(t *testing.T) {
 	})
 
 	t.Run("stress test(100 clients)", func(t *testing.T) {
-		address := ":8080"
+		address := "localhost:8083"
 		go startServer(address)
 		time.Sleep(1 * time.Second)
 
@@ -95,7 +99,9 @@ func TestServerConcurrency(t *testing.T) {
 					return
 				}
 				defer conn.Close()
-				fmt.Fprintf(conn, "Stress test message from client %d\n", id)
+
+				message := fmt.Sprintf("Stress test message from client %d", id)
+				fmt.Fprintf(conn, message+"\n")
 				scanner := bufio.NewScanner(conn)
 				if scanner.Scan() {
 					done <- true
@@ -111,5 +117,45 @@ func TestServerConcurrency(t *testing.T) {
 				t.Error("Not all clients completed successfully")
 			}
 		}
+	})
+
+	t.Run("broadcast test", func(t *testing.T) {
+		address := "localhost:8084"
+		go startServer(address)
+		time.Sleep(1 * time.Second)
+
+		numClients := 5
+		messages := make(chan string, numClients*(numClients-1))
+
+		clientWork := func(id int) {
+			conn, err := net.Dial("tcp", address)
+			if err != nil {
+				t.Error("Failed to connect to server:", err)
+				return
+			}
+			defer conn.Close()
+
+			greeting := fmt.Sprintf("Hello from client %d", id)
+			fmt.Fprintln(conn, greeting)
+
+			scanner := bufio.NewScanner(conn)
+			for scanner.Scan() {
+				received := scanner.Text()
+				if strings.HasPrefix(received, "Broadcast:") {
+					messages <- received
+				}
+			}
+		}
+
+		for i := 0; i < numClients; i++ {
+			go clientWork(i)
+		}
+
+		expectedMessages := numClients * (numClients - 1)
+		for i := 0; i < expectedMessages; i++ {
+			<-messages
+		}
+
+		t.Logf("Received all expected broadcast messages")
 	})
 }
