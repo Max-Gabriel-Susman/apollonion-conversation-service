@@ -62,3 +62,30 @@ rework locking/unlocking strategy for sake of performance
 so we can easily test and mock this we should better organize this into packages and then create an interface for the client that defines read and write so we can moq it up and make this generally better 
 
 shoot for production readiness as a chat server
+
+CONDENSED:
+
+
+wrap goroutines in an anonymous function always
+
+
+
+handleConnection:
+    use conn.Read() function instead of scanner.Scan
+
+we're gonna need a goroutine per connection
+
+
+so we can easily test and mock this we should better organize this into packages and then create an interface for the client that defines read and write so we can moq it up and make this generally better 
+
+[05/10/2024]
+
+we need a way to gracefully shutdown
+- prerfably a channel with a length of 1 that we can return from start server and write to to tell it to end the for loop
+
+- use select for the graceful shutdown implementation to handle different cases
+
+* actual work with concurrency in the marketplace domain
+- good opportunity 
+
+also put interfaces by their consumers as opposed to the structs their resembling

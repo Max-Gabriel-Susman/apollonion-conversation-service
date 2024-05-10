@@ -45,6 +45,8 @@ func handleConnection(conn net.Conn) {
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
 		text := scanner.Text()
+		fmt.Println("Message received:")
+		fmt.Println(text)
 		broadcastChan <- text
 	}
 	if err := scanner.Err(); err != nil {

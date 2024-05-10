@@ -7,3 +7,9 @@ run:
 
 connect:
 	echo -n “Ground Control For Major Tom” | nc localhost 8083
+
+listen:
+	go run cmd/apollonion-listener-service/main.go
+
+speak: 
+	go run cmd/apollonion-client-service/main.go
