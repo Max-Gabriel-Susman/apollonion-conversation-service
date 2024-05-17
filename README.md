@@ -89,3 +89,11 @@ we need a way to gracefully shutdown
 - good opportunity 
 
 also put interfaces by their consumers as opposed to the structs their resembling
+
+[05/17/2024]
+
+* create a wrapper around conns so that chat features can be implemented 
+
+* broadcast a message sent to all other chatters in the server
+
+* implement feedback for the sender on if the recipient received the message 

@@ -12,7 +12,8 @@ import (
 func TestServerConcurrency(t *testing.T) {
 	t.Run("successful handling of concurrent requests from multiple clients(5 clients)", func(t *testing.T) {
 		address := "localhost:8080"
-		go startServer(address)
+		shutdownChan := make(chan struct{}, 1)
+		go startServer(address, shutdownChan)
 		time.Sleep(time.Second)
 
 		numClients := 5
@@ -47,11 +48,13 @@ func TestServerConcurrency(t *testing.T) {
 			<-messages
 		}
 		t.Logf("Received all expected broadcast messages")
+		shutdownChan <- struct{}{}
 	})
 
 	t.Run("server start up delay", func(t *testing.T) {
 		address := "localhost:8081"
-		go startServer(address)
+		shutdownChan := make(chan struct{}, 1)
+		go startServer(address, shutdownChan)
 		time.Sleep(1 * time.Second)
 
 		conn, err := net.Dial("tcp", address)
@@ -59,11 +62,13 @@ func TestServerConcurrency(t *testing.T) {
 			t.Skip("Server not ready, skipping test")
 		}
 		conn.Close()
+		shutdownChan <- struct{}{}
 	})
 
 	t.Run("connection retries", func(t *testing.T) {
 		address := "localhost:8082"
-		go startServer(address)
+		shutdownChan := make(chan struct{}, 1)
+		go startServer(address, shutdownChan)
 		time.Sleep(1 * time.Second)
 
 		const maxRetries = 3
@@ -80,11 +85,13 @@ func TestServerConcurrency(t *testing.T) {
 			t.Fatal("Failed to connect after retries:", err)
 		}
 		conn.Close()
+		shutdownChan <- struct{}{}
 	})
 
 	t.Run("stress test(100 clients)", func(t *testing.T) {
 		address := "localhost:8083"
-		go startServer(address)
+		shutdownChan := make(chan struct{}, 1)
+		go startServer(address, shutdownChan)
 		time.Sleep(1 * time.Second)
 
 		const stressClientCount = 100
@@ -117,11 +124,13 @@ func TestServerConcurrency(t *testing.T) {
 				t.Error("Not all clients completed successfully")
 			}
 		}
+		shutdownChan <- struct{}{}
 	})
 
 	t.Run("broadcast test", func(t *testing.T) {
 		address := "localhost:8084"
-		go startServer(address)
+		shutdownChan := make(chan struct{}, 1)
+		go startServer(address, shutdownChan)
 		time.Sleep(1 * time.Second)
 
 		numClients := 5
@@ -157,5 +166,6 @@ func TestServerConcurrency(t *testing.T) {
 		}
 
 		t.Logf("Received all expected broadcast messages")
+		shutdownChan <- struct{}{}
 	})
 }
