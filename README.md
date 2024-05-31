@@ -94,6 +94,8 @@ also put interfaces by their consumers as opposed to the structs their resemblin
 
 * create a wrapper around conns so that chat features can be implemented 
 
+* implement feedback for the sender on if the recipient received the message 
+
 * broadcast a message sent to all other chatters in the server
 
-* implement feedback for the sender on if the recipient received the message 
+[05/31/2024]
